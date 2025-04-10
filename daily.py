@@ -28,6 +28,7 @@ class RepoData(TypedDict):
     stars: int
     forks: int
     readme: str
+    emojis: str
 
 
 def fetch_readme_content(owner: str, repo: str, token: str = None) -> str:
@@ -126,6 +127,9 @@ def search_github_repos(
                         # Fetch README content
                         readme_content = fetch_readme_content(owner, repo, token)
                         
+                        # Generate emojis based on repository characteristics
+                        emojis = generate_emojis(item, readme_content)
+                        
                         repo_data_for_keyword.append(
                             RepoData(
                                 name=item["name"],
@@ -133,7 +137,8 @@ def search_github_repos(
                                 html_url=item["html_url"],
                                 stars=item["stargazers_count"],
                                 forks=item["forks_count"],
-                                readme=readme_content
+                                readme=readme_content,
+                                emojis=emojis
                             )
                         )
                 all_repo_data_for_keyword.extend(repo_data_for_keyword)
@@ -159,6 +164,65 @@ def search_github_repos(
             time.sleep(60)
 
     return repo_data
+
+
+def generate_emojis(repo_data, readme_content):
+    """Generate emojis based on repository characteristics."""
+    emojis = []
+    
+    # Programming Languages
+    if re.search(r'python|django|flask|fastapi', str(readme_content), re.IGNORECASE):
+        emojis.append("🐍")
+    if re.search(r'typescript|ts|javascript|js|node', str(readme_content), re.IGNORECASE):
+        emojis.append("📇")
+    if re.search(r'go|golang', str(readme_content), re.IGNORECASE):
+        emojis.append("🏎️")
+    if re.search(r'rust', str(readme_content), re.IGNORECASE):
+        emojis.append("🦀")
+    if re.search(r'java|kotlin|spring', str(readme_content), re.IGNORECASE):
+        emojis.append("☕")
+    if re.search(r'c#|dotnet|net', str(readme_content), re.IGNORECASE):
+        emojis.append("#️⃣")
+    
+    # Deployment and Environment
+    if re.search(r'cloud|aws|azure|gcp', str(readme_content), re.IGNORECASE):
+        emojis.append("☁️")
+    if re.search(r'local|desktop|cli', str(readme_content), re.IGNORECASE):
+        emojis.append("🏠")
+    if re.search(r'embedded', str(readme_content), re.IGNORECASE):
+        emojis.append("📟")
+    
+    # Operating Systems
+    if re.search(r'macos|mac os|apple', str(readme_content), re.IGNORECASE):
+        emojis.append("🍎")
+    if re.search(r'windows|win', str(readme_content), re.IGNORECASE):
+        emojis.append("🪟")
+    if re.search(r'linux|ubuntu|debian', str(readme_content), re.IGNORECASE):
+        emojis.append("🐧")
+    
+    # Categories
+    if re.search(r'framework|sdk|kit|template', str(readme_content), re.IGNORECASE):
+        emojis.append("🛠️")
+    if re.search(r'utility|tool|helper|gateway|proxy|bridge', str(readme_content), re.IGNORECASE):
+        emojis.append("🔧")
+    if re.search(r'client|chat|interface', str(readme_content), re.IGNORECASE):
+        emojis.append("💬")
+    if re.search(r'tutorial|guide|example|demo', str(readme_content), re.IGNORECASE):
+        emojis.append("📚")
+    if re.search(r'community|discord|reddit', str(readme_content), re.IGNORECASE):
+        emojis.append("👥")
+    if re.search(r'database|sql|nosql|postgres|mysql|mongodb', str(readme_content), re.IGNORECASE):
+        emojis.append("🗄️")
+    if re.search(r'api|rest|graphql|http', str(readme_content), re.IGNORECASE):
+        emojis.append("🔌")
+    if re.search(r'file|storage|s3|cloud', str(readme_content), re.IGNORECASE):
+        emojis.append("📂")
+    if re.search(r'ai|llm|gpt|claude|model', str(readme_content), re.IGNORECASE):
+        emojis.append("🤖")
+    if re.search(r'search|elastic|lucene', str(readme_content), re.IGNORECASE):
+        emojis.append("🔎")
+    
+    return " ".join(emojis)
 
 
 def load_existing_data(filepath: Path) -> Dict[str, Any]:
@@ -207,10 +271,68 @@ def extract_keywords(description: str) -> List[str]:
     )
 
 
-def assign_category(keywords: List[str]) -> str:
-    """Categorizes item based on extracted keywords."""
-    if not keywords:
+def assign_category(keywords: List[str], emojis: str = "") -> str:
+    """Categorizes item based on extracted keywords and emojis."""
+    if not keywords and not emojis:
         return "general"
+    
+    # Check for category emojis
+    if '🔗' in emojis:
+        return "aggregator"
+    if '🎨' in emojis:
+        return "art_culture"
+    if '📂' in emojis and any(word in keywords for word in ["browser", "automation"]):
+        return "browser_automation"
+    if '☁️' in emojis and any(word in keywords for word in ["cloud", "aws", "azure", "gcp"]):
+        return "cloud_platform"
+    if '👨‍💻' in emojis or any(word in keywords for word in ["code", "execution"]):
+        return "code_execution"
+    if '🤖' in emojis or any(word in keywords for word in ["agent", "coding"]):
+        return "coding_agent"
+    if '🖥️' in emojis or any(word in keywords for word in ["cli", "command", "line"]):
+        return "command_line"
+    if '💬' in emojis or any(word in keywords for word in ["communication", "chat"]):
+        return "communication"
+    if '👤' in emojis or any(word in keywords for word in ["customer", "data"]):
+        return "customer_data"
+    if '🗄️' in emojis or any(word in keywords for word in ["database", "sql", "nosql"]):
+        return "database"
+    if '📊' in emojis and any(word in keywords for word in ["data", "platform"]):
+        return "data_platform"
+    if '🛠️' in emojis or any(word in keywords for word in ["developer", "tool"]):
+        return "developer_tool"
+    if '🧮' in emojis or any(word in keywords for word in ["data", "science"]):
+        return "data_science"
+    if '📟' in emojis or any(word in keywords for word in ["embedded", "system"]):
+        return "embedded_system"
+    if '📂' in emojis and any(word in keywords for word in ["file", "system"]):
+        return "file_system"
+    if '💰' in emojis or any(word in keywords for word in ["finance", "money"]):
+        return "finance"
+    if '🎮' in emojis or any(word in keywords for word in ["gaming", "game"]):
+        return "gaming"
+    if '🧠' in emojis or any(word in keywords for word in ["knowledge", "brain"]):
+        return "knowledge"
+    if '🗺️' in emojis or any(word in keywords for word in ["location", "map"]):
+        return "location"
+    if '🎯' in emojis or any(word in keywords for word in ["marketing", "ad"]):
+        return "marketing"
+    if '📊' in emojis and any(word in keywords for word in ["monitoring", "metrics"]):
+        return "monitoring"
+    if '🔎' in emojis or any(word in keywords for word in ["search", "find"]):
+        return "search"
+    if '🔒' in emojis or any(word in keywords for word in ["security", "secure"]):
+        return "security"
+    if '🏃' in emojis or any(word in keywords for word in ["sports", "athlete"]):
+        return "sports"
+    if '🎧' in emojis or any(word in keywords for word in ["support", "help"]):
+        return "support"
+    if '🌎' in emojis or any(word in keywords for word in ["translation", "language"]):
+        return "translation"
+    if '🚆' in emojis or any(word in keywords for word in ["travel", "trip"]):
+        return "travel"
+    if '🔄' in emojis or any(word in keywords for word in ["version", "control"]):
+        return "version_control"
     
     # MCP Server Categories
     if any(tech in keywords for tech in ["mcp", "model context protocol", "context protocol"]):
@@ -243,22 +365,22 @@ def assign_category(keywords: List[str]) -> str:
     return "general"
 
 
-def extract_techstack(keywords: List[str], all_keywords: List[str]) -> List[str]:
-    """Extracts techstack from the keywords, using all available keywords."""
+def extract_techstack(keywords: List[str], all_keywords: List[str], emojis: str = "") -> List[str]:
+    """Extracts techstack from the keywords, using all available keywords and emojis."""
     tech_stack = []
     
     # Programming Languages
-    if any(tech in keywords for tech in ["python", "py", "django", "flask", "fastapi"]):
+    if any(tech in keywords for tech in ["python", "py", "django", "flask", "fastapi"]) or '🐍' in emojis:
         tech_stack.append("python")
-    if any(tech in keywords for tech in ["typescript", "ts", "javascript", "js", "node"]):
+    if any(tech in keywords for tech in ["typescript", "ts", "javascript", "js", "node"]) or '📇' in emojis:
         tech_stack.append("typescript")
-    if any(tech in keywords for tech in ["go", "golang"]):
+    if any(tech in keywords for tech in ["go", "golang"]) or '🏎️' in emojis:
         tech_stack.append("go")
-    if any(tech in keywords for tech in ["rust"]):
+    if any(tech in keywords for tech in ["rust"]) or '🦀' in emojis:
         tech_stack.append("rust")
-    if any(tech in keywords for tech in ["java", "kotlin", "spring"]):
+    if any(tech in keywords for tech in ["java", "kotlin", "spring"]) or '☕' in emojis:
         tech_stack.append("java")
-    if any(tech in keywords for tech in ["csharp", "dotnet", "net"]):
+    if any(tech in keywords for tech in ["csharp", "dotnet", "net"]) or '#️⃣' in emojis:
         tech_stack.append("csharp")
     
     # Frameworks and Libraries
@@ -280,12 +402,22 @@ def extract_techstack(keywords: List[str], all_keywords: List[str]) -> List[str]
         tech_stack.append("http")
     
     # Deployment and Environment
-    if any(tech in keywords for tech in ["cloud", "aws", "azure", "gcp"]):
+    if any(tech in keywords for tech in ["cloud", "aws", "azure", "gcp"]) or '☁️' in emojis:
         tech_stack.append("cloud")
-    if any(tech in keywords for tech in ["local", "desktop", "cli"]):
+    if any(tech in keywords for tech in ["local", "desktop", "cli"]) or '🏠' in emojis:
         tech_stack.append("local")
     if any(tech in keywords for tech in ["docker", "container"]):
         tech_stack.append("docker")
+    if any(tech in keywords for tech in ["embedded"]) or '📟' in emojis:
+        tech_stack.append("embedded")
+    
+    # Operating Systems
+    if '🍎' in emojis:
+        tech_stack.append("macos")
+    if '🪟' in emojis:
+        tech_stack.append("windows")
+    if '🐧' in emojis:
+        tech_stack.append("linux")
     
     return tech_stack
 
@@ -307,10 +439,8 @@ def save_data_as_csv(filepath: Path, data: Dict[str, Any]) -> None:
         logging.warning("No data to save to CSV")
         return
         
-    # Get all possible fields from the data
-    fieldnames = set()
-    for repo in repos:
-        fieldnames.update(repo.keys())
+    # Define fieldnames
+    fieldnames = ['name', 'description', 'html_url', 'stars', 'forks', 'keywords', 'category', 'techstack', 'emojis']
     
     # Convert sets to strings for CSV compatibility
     for repo in repos:
@@ -320,7 +450,7 @@ def save_data_as_csv(filepath: Path, data: Dict[str, Any]) -> None:
             repo["techstack"] = ",".join(repo["techstack"])
     
     with open(filepath, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=sorted(fieldnames))
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(repos)
     
@@ -357,8 +487,8 @@ def merge_and_save_results(
             continue  # Skip if there are no results
         for repo in new_repos:
             repo["keywords"] = extract_keywords(repo["description"])
-            repo["category"] = assign_category(repo["keywords"])
-            repo["techstack"] = extract_techstack(repo["keywords"], keywords_to_search)
+            repo["category"] = assign_category(repo["keywords"], repo.get("emojis", ""))
+            repo["techstack"] = extract_techstack(repo["keywords"], keywords_to_search, repo.get("emojis", ""))
             merged_data["all"].append(repo)
 
     for domain, existing_info in existing_data.items():
@@ -377,12 +507,13 @@ def merge_and_save_results(
                         "domain_strength": existing_info.get("domain_strength"),
                         "est_mo_clicks": existing_info.get("est_mo_clicks", 0),
                         "google_description": existing_info.get("google_description"),
+                        "emojis": ""
                     }
                 )
     
     # 4. save to CSV file with date in filename
     date_str = datetime.now().strftime("%Y%m%d")
-    csv_filepath = Path("data") / f"{date_str}.csv"
+    csv_filepath = Path("data") / f"mcp_servers_{date_str}.csv"
     save_data_as_csv(csv_filepath, merged_data)
 
 

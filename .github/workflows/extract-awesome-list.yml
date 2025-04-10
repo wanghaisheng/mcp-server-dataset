@@ -1,0 +1,43 @@
+name: Extract Awesome MCP Servers List
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Run daily at midnight UTC
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  extract-awesome-list:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+          cache: 'pip'
+          
+      - name: Install dependencies
+        run: |
+          pip install requests python-dotenv
+          
+      - name: Run extraction script
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python extract_awesome_list.py
+          
+      - name: Upload CSV results as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: awesome-mcp-servers-list
+          path: data/awesome_list_*.csv
+          
+      - name: Commit and push if changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add data/awesome_list_*.csv
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update awesome MCP servers list [skip ci]" && git push) 
