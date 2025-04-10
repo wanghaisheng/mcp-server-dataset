@@ -6,15 +6,15 @@ on:
       keywords:
         description: 'Comma-separated keywords to search'
         required: true
-        default: 'mcp server'
+        default: 'model context protocol server,mcp server,mcp framework,mcp sdk,mcp template,mcp utility,mcp gateway,mcp proxy,mcp client,mcp tutorial,mcp example,mcp database,mcp api,mcp storage,mcp ai,mcp chat,mcp search'
       min_stars:
         description: "Minimum number of stars a repo should have"
         required: false
-        default: 1
+        default: '10'
       min_forks:
         description: "Minimum number of forks a repo should have"
         required: false
-        default: 0
+        default: '5'
       output_file:
         description: 'Output json file path'
         required: false
