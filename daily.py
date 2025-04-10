@@ -7,7 +7,10 @@ import logging
 import time
 import argparse
 import re
+import csv
+from datetime import datetime
 from typing import List, Dict, Any, TypedDict
+import base64
 
 load_dotenv()
 
@@ -24,6 +27,49 @@ class RepoData(TypedDict):
     html_url: str
     stars: int
     forks: int
+    readme: str
+
+
+def fetch_readme_content(owner: str, repo: str, token: str = None) -> str:
+    """Fetches the README content from a GitHub repository.
+
+    Args:
+        owner (str): Repository owner
+        repo (str): Repository name
+        token (str, optional): GitHub token for authentication
+
+    Returns:
+        str: README content or empty string if not found
+    """
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": GITHUB_API_VERSION,
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    try:
+        # First try to get README.md
+        url = f"https://api.github.com/repos/{owner}/{repo}/readme"
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code == 200:
+            content = response.json().get("content", "")
+            # Decode base64 content
+            return base64.b64decode(content).decode("utf-8")
+        
+        # If README.md not found, try README.mdx
+        url = f"https://api.github.com/repos/{owner}/{repo}/contents/README.mdx"
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code == 200:
+            content = response.json().get("content", "")
+            return base64.b64decode(content).decode("utf-8")
+            
+        return ""
+    except Exception as e:
+        logging.error(f"Error fetching README for {owner}/{repo}: {e}")
+        return ""
 
 
 def search_github_repos(
@@ -61,7 +107,7 @@ def search_github_repos(
             while next_page_url:
                 logging.info(f"Searching for '{keyword}' at '{next_page_url}'")
                 response = requests.get(next_page_url, headers=headers, params=params)
-                response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+                response.raise_for_status()
 
                 data = response.json()
                 logging.debug(f"API response data: {data}")
@@ -71,6 +117,15 @@ def search_github_repos(
                         item["stargazers_count"] >= min_stars
                         and item["forks_count"] >= min_forks
                     ):
+                        # Extract owner and repo name from html_url
+                        html_url = item["html_url"]
+                        owner_repo = html_url.replace("https://github.com/", "").split("/")
+                        owner = owner_repo[0]
+                        repo = owner_repo[1]
+                        
+                        # Fetch README content
+                        readme_content = fetch_readme_content(owner, repo, token)
+                        
                         repo_data_for_keyword.append(
                             RepoData(
                                 name=item["name"],
@@ -78,9 +133,11 @@ def search_github_repos(
                                 html_url=item["html_url"],
                                 stars=item["stargazers_count"],
                                 forks=item["forks_count"],
+                                readme=readme_content
                             )
                         )
                 all_repo_data_for_keyword.extend(repo_data_for_keyword)
+                
                 # Handle Pagination
                 if "Link" in response.headers:
                     link_header = response.headers["Link"]
@@ -95,15 +152,11 @@ def search_github_repos(
                 if next_page_url:
                     next_page_url=next_page_url.replace('<','')
 
-                
-
             repo_data[keyword] = all_repo_data_for_keyword
         except requests.exceptions.RequestException as e:
             logging.error(f"Error searching for '{keyword}': {e}")
-            repo_data[keyword] = []  # ensure there's always an entry even with errors
-            time.sleep(
-                60
-            )  # In case of rate limit or other error, wait a minute before trying again
+            repo_data[keyword] = []
+            time.sleep(60)
 
     return repo_data
 
@@ -158,39 +211,120 @@ def assign_category(keywords: List[str]) -> str:
     """Categorizes item based on extracted keywords."""
     if not keywords:
         return "general"
-    if any(
-        tech in keywords
-        for tech in ["ecommerce", "commerce", "shopify", "vendure", "storefront"]
-    ):
-        return "ecommerce"
-    if any(tech in keywords for tech in ["game", "gaming", "unity", "unreal"]):
-        return "game"
-    if any(
-        tech in keywords
-        for tech in ["ai", "machinelearning", "artificialintelligence", "gpt", "chat"]
-    ):
+    
+    # MCP Server Categories
+    if any(tech in keywords for tech in ["mcp", "model context protocol", "context protocol"]):
+        return "mcp"
+    if any(tech in keywords for tech in ["framework", "sdk", "kit", "template"]):
+        return "framework"
+    if any(tech in keywords for tech in ["utility", "tool", "helper", "gateway", "proxy", "bridge"]):
+        return "utility"
+    if any(tech in keywords for tech in ["client", "chat", "interface"]):
+        return "client"
+    if any(tech in keywords for tech in ["tutorial", "guide", "example", "demo"]):
+        return "tutorial"
+    if any(tech in keywords for tech in ["community", "discord", "reddit"]):
+        return "community"
+    
+    # Integration Categories
+    if any(tech in keywords for tech in ["database", "sql", "nosql", "postgres", "mysql", "mongodb"]):
+        return "database"
+    if any(tech in keywords for tech in ["api", "rest", "graphql", "http"]):
+        return "api"
+    if any(tech in keywords for tech in ["file", "storage", "s3", "cloud"]):
+        return "storage"
+    if any(tech in keywords for tech in ["ai", "llm", "gpt", "claude", "model"]):
         return "ai"
-    if any(tech in keywords for tech in ["saas", "boilerplate", "starter"]):
-        return "saas"
+    if any(tech in keywords for tech in ["chat", "messaging", "discord", "slack", "telegram"]):
+        return "messaging"
+    if any(tech in keywords for tech in ["search", "elastic", "lucene"]):
+        return "search"
+    
     return "general"
 
 
 def extract_techstack(keywords: List[str], all_keywords: List[str]) -> List[str]:
     """Extracts techstack from the keywords, using all available keywords."""
     tech_stack = []
-    if any(tech in keywords for tech in ["nextjs", "next.js", "next"]):
-        tech_stack.append("nextjs")
-    if any(tech in keywords for tech in ["react", "reactjs", "react.js"]):
-        tech_stack.append("react")
-    if any(tech in keywords for tech in ["python", "django", "flask"]):
+    
+    # Programming Languages
+    if any(tech in keywords for tech in ["python", "py", "django", "flask", "fastapi"]):
         tech_stack.append("python")
-    if any(tech in keywords for tech in ["remix"]):
-        tech_stack.append("remix")
-    if any(tech in keywords for tech in ["node", "nodejs", "node.js"]):
-        tech_stack.append("node")
-    if any(tech in keywords for tech in ["laravel", "php"]):
-        tech_stack.append("laravel")
+    if any(tech in keywords for tech in ["typescript", "ts", "javascript", "js", "node"]):
+        tech_stack.append("typescript")
+    if any(tech in keywords for tech in ["go", "golang"]):
+        tech_stack.append("go")
+    if any(tech in keywords for tech in ["rust"]):
+        tech_stack.append("rust")
+    if any(tech in keywords for tech in ["java", "kotlin", "spring"]):
+        tech_stack.append("java")
+    if any(tech in keywords for tech in ["csharp", "dotnet", "net"]):
+        tech_stack.append("csharp")
+    
+    # Frameworks and Libraries
+    if any(tech in keywords for tech in ["fastmcp", "fastapi"]):
+        tech_stack.append("fastmcp")
+    if any(tech in keywords for tech in ["langchain", "chain"]):
+        tech_stack.append("langchain")
+    if any(tech in keywords for tech in ["spring", "springboot"]):
+        tech_stack.append("spring")
+    if any(tech in keywords for tech in ["quarkus"]):
+        tech_stack.append("quarkus")
+    
+    # Transport and Protocols
+    if any(tech in keywords for tech in ["sse", "server sent events"]):
+        tech_stack.append("sse")
+    if any(tech in keywords for tech in ["websocket", "ws"]):
+        tech_stack.append("websocket")
+    if any(tech in keywords for tech in ["http", "rest", "api"]):
+        tech_stack.append("http")
+    
+    # Deployment and Environment
+    if any(tech in keywords for tech in ["cloud", "aws", "azure", "gcp"]):
+        tech_stack.append("cloud")
+    if any(tech in keywords for tech in ["local", "desktop", "cli"]):
+        tech_stack.append("local")
+    if any(tech in keywords for tech in ["docker", "container"]):
+        tech_stack.append("docker")
+    
     return tech_stack
+
+
+def save_data_as_csv(filepath: Path, data: Dict[str, Any]) -> None:
+    """Saves data to a CSV file.
+
+    Args:
+        filepath (str): The path to the CSV file.
+        data (dict): The data to save.
+    """
+    # ensure parent directory exists
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Extract all repositories from the "all" key
+    repos = data.get("all", [])
+    
+    if not repos:
+        logging.warning("No data to save to CSV")
+        return
+        
+    # Get all possible fields from the data
+    fieldnames = set()
+    for repo in repos:
+        fieldnames.update(repo.keys())
+    
+    # Convert sets to strings for CSV compatibility
+    for repo in repos:
+        if "keywords" in repo:
+            repo["keywords"] = ",".join(repo["keywords"])
+        if "techstack" in repo:
+            repo["techstack"] = ",".join(repo["techstack"])
+    
+    with open(filepath, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=sorted(fieldnames))
+        writer.writeheader()
+        writer.writerows(repos)
+    
+    logging.info(f"CSV results saved to: {filepath}")
 
 
 def merge_and_save_results(
@@ -245,9 +379,11 @@ def merge_and_save_results(
                         "google_description": existing_info.get("google_description"),
                     }
                 )
-    # 4. save to file
-    save_data(output_filepath, merged_data)
-    logging.info(f"Results saved to: {output_filepath}")
+    
+    # 4. save to CSV file with date in filename
+    date_str = datetime.now().strftime("%Y%m%d")
+    csv_filepath = Path("data") / f"{date_str}.csv"
+    save_data_as_csv(csv_filepath, merged_data)
 
 
 def validate_config(min_stars: int, min_forks: int):
@@ -275,9 +411,27 @@ if __name__ == "__main__":
             keyword.strip() for keyword in keywords_str.split(",") if keyword.strip()
         ]
     else:
-        keywords_to_search = []
-        logging.error("No Keywords specified. Please specify via KEYWORDS_ENV.")
-        exit(1)
+        # Default keywords for MCP server repositories
+        keywords_to_search = [
+            "model context protocol server",
+            "mcp server",
+            "mcp framework",
+            "mcp sdk",
+            "mcp template",
+            "mcp utility",
+            "mcp gateway",
+            "mcp proxy",
+            "mcp client",
+            "mcp tutorial",
+            "mcp example",
+            "mcp database",
+            "mcp api",
+            "mcp storage",
+            "mcp ai",
+            "mcp chat",
+            "mcp search"
+        ]
+        logging.info("Using default MCP server keywords")
 
     github_token = os.getenv("GITHUB_TOKEN")
     try:
@@ -287,7 +441,8 @@ if __name__ == "__main__":
         logging.error(f"Error parsing MIN_STARS or MIN_FORKS env variables: {e}")
         exit(1)
     
-    output_file = Path(os.getenv("OUTPUT_FILE", "results/data.json"))
+    # Use default output path since we're now using date-based CSV files
+    output_file = Path("results/data.json")
 
     validate_config(min_stars_filter, min_forks_filter)
 
