@@ -8,8 +8,8 @@ import time
 import argparse
 import re
 import csv
-from datetime import datetime
-from typing import List, Dict, Any, TypedDict
+from datetime import datetime, timedelta
+from typing import List, Dict, Any, TypedDict, Optional
 import base64
 
 load_dotenv()
@@ -17,6 +17,10 @@ load_dotenv()
 # Constants
 GITHUB_API_BASE_URL = "https://api.github.com/search/repositories"
 GITHUB_API_VERSION = "2022-11-28"
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
+KEYWORDS_ENV = os.environ.get("KEYWORDS_ENV", "")
+MIN_STARS = int(os.environ.get("MIN_STARS", "10"))
+MIN_FORKS = int(os.environ.get("MIN_FORKS", "5"))
 
 
 class RepoData(TypedDict):
@@ -29,6 +33,9 @@ class RepoData(TypedDict):
     forks: int
     readme: str
     emojis: str
+    keywords: List[str]
+    category: str
+    techstack: List[str]
 
 
 def fetch_readme_content(owner: str, repo: str, token: str = None) -> str:
@@ -439,7 +446,7 @@ def save_data_as_csv(filepath: Path, data: Dict[str, Any]) -> None:
         logging.warning("No data to save to CSV")
         return
         
-    # Define fieldnames
+    # Define fieldnames - match the format used in extract_mcp_servers.py
     fieldnames = ['name', 'description', 'html_url', 'stars', 'forks', 'keywords', 'category', 'techstack', 'emojis']
     
     # Convert sets to strings for CSV compatibility
@@ -457,71 +464,168 @@ def save_data_as_csv(filepath: Path, data: Dict[str, Any]) -> None:
     logging.info(f"CSV results saved to: {filepath}")
 
 
-def merge_and_save_results(
-    keywords_to_search: List[str],
-    token: str,
-    output_filepath: Path,
-    min_stars: int = 0,
-    min_forks: int = 0,
-) -> None:
-    """Searches, loads existing data, merges, and saves new data.
-
-    Args:
-       keywords (list): A list of keywords to search for.
-       token (str, optional): A GitHub personal access token for higher rate limits. Defaults to None.
-       output_filepath (str) : Path to save the results to
-       min_stars (int, optional): Minimum number of stars a repo should have. Defaults to 0.
-       min_forks (int, optional): Minimum number of forks a repo should have. Defaults to 0.
+def get_previous_day_file() -> Optional[Path]:
     """
-    # 1. search github for keywords, with filter criteria
-    new_results = search_github_repos(keywords_to_search, token, min_stars, min_forks)
-
-    # 2. Load existing data (or initialize an empty dict)
-    existing_data = load_existing_data(output_filepath)
-
-    # 3.  Merge the data, make them unique and add keywords as properties
-    merged_data = {"all": []}
-    for keyword, new_repos in new_results.items():
-        if not new_repos:
-            logging.warning(f"No results for {keyword}. skipping...")
-            continue  # Skip if there are no results
-        for repo in new_repos:
-            repo["keywords"] = extract_keywords(repo["description"])
-            repo["category"] = assign_category(repo["keywords"], repo.get("emojis", ""))
-            repo["techstack"] = extract_techstack(repo["keywords"], keywords_to_search, repo.get("emojis", ""))
-            merged_data["all"].append(repo)
-
-    for domain, existing_info in existing_data.items():
-        if domain not in merged_data:
-            merged_data[domain] = []
-        if isinstance(existing_info, dict):
-            for item in existing_info.get("description", []):
-                keywords = extract_keywords(item)
-                merged_data["all"].append(
-                    {
-                        "name": domain,
-                        "description": item,
-                        "keywords": keywords,
-                        "category": assign_category(keywords),
-                        "techstack": extract_techstack(keywords, keywords_to_search),
-                        "domain_strength": existing_info.get("domain_strength"),
-                        "est_mo_clicks": existing_info.get("est_mo_clicks", 0),
-                        "google_description": existing_info.get("google_description"),
-                        "emojis": ""
-                    }
-                )
+    Get the path to the previous day's CSV file.
     
-    # 4. save to CSV file with date in filename
-    date_str = datetime.now().strftime("%Y%m%d")
-    csv_filepath = Path("data") / f"mcp_servers_{date_str}.csv"
-    save_data_as_csv(csv_filepath, merged_data)
+    Returns:
+        Optional[Path]: Path to the previous day's CSV file or None if not found
+    """
+    yesterday = datetime.now() - timedelta(days=1)
+    yesterday_str = yesterday.strftime('%Y%m%d')
+    file_path = Path('data') / f'mcp_servers_{yesterday_str}.csv'
+    
+    if file_path.exists():
+        return file_path
+    return None
 
 
-def validate_config(min_stars: int, min_forks: int):
-    if not isinstance(min_stars, int) or min_stars < 0:
-        raise ValueError("min_stars must be a non-negative integer")
-    if not isinstance(min_forks, int) or min_forks < 0:
-        raise ValueError("min_forks must be a non-negative integer")
+def read_previous_data(file_path: Path) -> Dict[str, RepoData]:
+    """
+    Read data from the previous day's CSV file.
+    
+    Args:
+        file_path: Path to the CSV file
+        
+    Returns:
+        Dict[str, RepoData]: Dictionary of repositories by name
+    """
+    repos = {}
+    try:
+        with open(file_path, 'r', newline='', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                # Convert string fields back to lists
+                if 'keywords' in row and row['keywords']:
+                    row['keywords'] = row['keywords'].split(',')
+                if 'techstack' in row and row['techstack']:
+                    row['techstack'] = row['techstack'].split(',')
+                repos[row['name']] = row
+    except Exception as e:
+        print(f"Error reading previous data: {e}")
+    
+    return repos
+
+
+def merge_repos(old_repos: Dict[str, RepoData], new_repos: Dict[str, List[RepoData]]) -> Dict[str, RepoData]:
+    """
+    Merge old and new repository data, updating existing entries and adding new ones.
+    
+    Args:
+        old_repos: Dictionary of old repositories by name
+        new_repos: Dictionary of new repositories by keyword
+        
+    Returns:
+        Dict[str, RepoData]: Merged dictionary of repositories by name
+    """
+    merged_repos = old_repos.copy()
+    
+    # Process all new repositories
+    for keyword, repos in new_repos.items():
+        for repo in repos:
+            name = repo["name"]
+            
+            # Generate emojis
+            repo["emojis"] = generate_emojis(repo)
+            
+            # Extract additional keywords
+            additional_keywords = extract_keywords(repo["description"])
+            repo["keywords"] = list(set(repo["keywords"] + additional_keywords))
+            
+            # Assign category
+            repo["category"] = assign_category(repo["keywords"], repo["emojis"])
+            
+            # Extract tech stack
+            repo["techstack"] = extract_techstack(repo["keywords"], KEYWORDS_ENV, repo["emojis"])
+            
+            # Update or add to merged repos
+            if name in merged_repos:
+                # Update existing repo
+                old_repo = merged_repos[name]
+                
+                # Merge keywords
+                old_repo["keywords"] = list(set(old_repo["keywords"] + repo["keywords"]))
+                
+                # Update stars and forks if new values are higher
+                old_repo["stars"] = max(old_repo["stars"], repo["stars"])
+                old_repo["forks"] = max(old_repo["forks"], repo["forks"])
+                
+                # Update emojis (combine)
+                old_repo["emojis"] = "".join(set(old_repo["emojis"] + repo["emojis"]))
+                
+                # Update category if more specific
+                if old_repo["category"] == "Other" and repo["category"] != "Other":
+                    old_repo["category"] = repo["category"]
+                
+                # Merge tech stack
+                old_repo["techstack"] = list(set(old_repo["techstack"] + repo["techstack"]))
+                
+                merged_repos[name] = old_repo
+            else:
+                # Add new repo
+                merged_repos[name] = repo
+    
+    return merged_repos
+
+
+def save_to_csv(repos: Dict[str, RepoData], output_dir: str = 'data') -> str:
+    """
+    Save repository data to a CSV file.
+    
+    Args:
+        repos: Dictionary of repositories by name
+        output_dir: Directory to save the CSV file
+        
+    Returns:
+        Path to the saved CSV file
+    """
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Generate filename with current date
+    date_str = datetime.now().strftime('%Y%m%d')
+    output_file = os.path.join(output_dir, f'mcp_servers_{date_str}.csv')
+    
+    # Define fieldnames - match the format used in extract_mcp_servers.py
+    fieldnames = ['name', 'description', 'html_url', 'stars', 'forks', 'keywords', 'category', 'techstack', 'emojis']
+    
+    # Write to CSV
+    with open(output_file, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        
+        for repo in repos.values():
+            # Convert lists to comma-separated strings for CSV
+            row = repo.copy()
+            row['keywords'] = ', '.join(row['keywords'])
+            row['techstack'] = ', '.join(row['techstack'])
+            writer.writerow(row)
+    
+    return output_file
+
+
+def main():
+    # Parse keywords from environment variable
+    keywords = [k.strip() for k in KEYWORDS_ENV.split(',') if k.strip()]
+    
+    # 1. Get previous day's data
+    prev_file = get_previous_day_file()
+    old_repos = {}
+    if prev_file:
+        print(f"Reading previous data from {prev_file}")
+        old_repos = read_previous_data(prev_file)
+    
+    # 2. Search GitHub for new repositories
+    print(f"Searching GitHub for {len(keywords)} keywords")
+    new_repos = search_github_repos(keywords, GITHUB_TOKEN, MIN_STARS, MIN_FORKS)
+    
+    # 3. Merge old and new data
+    print("Merging old and new data")
+    merged_repos = merge_repos(old_repos, new_repos)
+    
+    # 4. Save to CSV
+    output_file = save_to_csv(merged_repos)
+    print(f"Total {len(merged_repos)} MCP servers saved to {output_file}")
 
 
 if __name__ == "__main__":
@@ -575,12 +679,4 @@ if __name__ == "__main__":
     # Use default output path since we're now using date-based CSV files
     output_file = Path("results/data.json")
 
-    validate_config(min_stars_filter, min_forks_filter)
-
-    merge_and_save_results(
-        keywords_to_search,
-        github_token,
-        output_file,
-        min_stars_filter,
-        min_forks_filter,
-    )
+    main()

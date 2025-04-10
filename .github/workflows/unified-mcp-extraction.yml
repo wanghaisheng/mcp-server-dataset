@@ -1,40 +1,60 @@
-name: mcp GitHub Repo Search
+name: Unified MCP Servers Extraction
 
 on:
-  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'  # Run daily at midnight UTC
+  workflow_dispatch:  # Allow manual triggering
     inputs:
       keywords:
-        description: 'Comma-separated keywords to search'
-        required: true
+        description: 'Comma-separated keywords to search (for GitHub search only)'
+        required: false
         default: 'model context protocol server,mcp server,mcp framework,mcp sdk,mcp template,mcp utility,mcp gateway,mcp proxy,mcp client,mcp tutorial,mcp example,mcp database,mcp api,mcp storage,mcp ai,mcp chat,mcp search'
       min_stars:
-        description: "Minimum number of stars a repo should have"
+        description: "Minimum number of stars a repo should have (for GitHub search only)"
         required: false
         default: '10'
       min_forks:
-        description: "Minimum number of forks a repo should have"
+        description: "Minimum number of forks a repo should have (for GitHub search only)"
         required: false
         default: '5'
+      run_github_search:
+        description: "Run GitHub repository search"
+        required: false
+        type: boolean
+        default: true
+      run_readme_extraction:
+        description: "Extract from README"
+        required: false
+        type: boolean
+        default: true
 
 jobs:
-  search-github-repos:
+  extract-mcp-servers:
     runs-on: ubuntu-latest
-
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+        
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
           cache: 'pip'
-
+          
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-
+          
+      - name: Run README extraction script
+        if: ${{ github.event.inputs.run_readme_extraction != false }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python extract_mcp_servers.py
+          
       - name: Run GitHub repo search script
+        if: ${{ github.event.inputs.run_github_search != false }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           KEYWORDS_ENV: ${{ github.event.inputs.keywords }}
@@ -42,12 +62,11 @@ jobs:
           MIN_FORKS: ${{ github.event.inputs.min_forks }}
         run: |
           python daily.py
-
-      - name: Upload search results as artifact
-        if: always()
+          
+      - name: Upload CSV results as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: search-results
+          name: mcp-servers-data
           path: data/mcp_servers_*.csv
           
       - name: Commit and push if changes
@@ -55,4 +74,4 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add data/mcp_servers_*.csv
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Update MCP servers list from GitHub search [skip ci]" && git push)
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update MCP servers list [skip ci]" && git push) 
