@@ -36,7 +36,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          pip install requests python-dotenv beautifulsoup4 lxml
 
       - name: Run GitHub repo search script
         env:

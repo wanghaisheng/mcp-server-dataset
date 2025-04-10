@@ -21,23 +21,23 @@ jobs:
           
       - name: Install dependencies
         run: |
-          pip install requests python-dotenv
+          pip install requests python-dotenv beautifulsoup4 lxml
           
       - name: Run extraction script
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python extract_awesome_list.py
+          python extract_mcp_servers.py
           
       - name: Upload CSV results as artifact
         uses: actions/upload-artifact@v4
         with:
           name: awesome-mcp-servers-list
-          path: data/awesome_list_*.csv
+          path: data/mcp_servers_*.csv
           
       - name: Commit and push if changes
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add data/awesome_list_*.csv
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Update awesome MCP servers list [skip ci]" && git push) 
+          git add data/mcp_servers_*.csv
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update MCP servers list [skip ci]" && git push) 
