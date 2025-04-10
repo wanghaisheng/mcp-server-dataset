@@ -21,7 +21,7 @@ jobs:
           
       - name: Install dependencies
         run: |
-          pip install requests python-dotenv beautifulsoup4 lxml
+          pip install -r requirements.txt
           
       - name: Run extraction script
         env:
